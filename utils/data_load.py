@@ -44,6 +44,41 @@ def load_mcpl_file(
     return data
 
 
+def load_mcpl_file_random(filepath: str, n_particles: int, seed: int = 0):
+    """Load a random subset (without replacement) of n_particles from an MCPL
+    file, streaming the file block by block."""
+    mcplfile = mcpl.MCPLFile(filepath)
+    max_p = mcplfile.nparticles
+    n_particles = min(int(n_particles), max_p)
+    rng = np.random.default_rng(seed)
+    chosen = np.sort(rng.choice(max_p, n_particles, replace=False))
+
+    data = np.zeros([n_particles, 12], dtype=np.float32)
+    start = 0
+    filled = 0
+    for b in mcplfile.particle_blocks:
+        n_block = len(b.weight)
+        lo = np.searchsorted(chosen, start)
+        hi = np.searchsorted(chosen, start + n_block)
+        local = chosen[lo:hi] - start
+        k = len(local)
+        data[filled : filled + k, 0] = b.weight[local]
+        data[filled : filled + k, 1] = b.ekin[local]
+        data[filled : filled + k, 2] = b.time[local]
+        data[filled : filled + k, 3] = b.ux[local]
+        data[filled : filled + k, 4] = b.uy[local]
+        data[filled : filled + k, 5] = b.uz[local]
+        data[filled : filled + k, 6] = b.x[local]
+        data[filled : filled + k, 7] = b.y[local]
+        data[filled : filled + k, 8] = b.z[local]
+        data[filled : filled + k, 9] = b.polx[local]
+        data[filled : filled + k, 10] = b.poly[local]
+        data[filled : filled + k, 11] = b.polz[local]
+        filled += k
+        start += n_block
+    return torch.tensor(data, dtype=torch.float32)
+
+
 def dim_reduction(data):
     out = torch.zeros((data.shape[0], 6))
     out[:, 0:7] = data[:, 0:7]
