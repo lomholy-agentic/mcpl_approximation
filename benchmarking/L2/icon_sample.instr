@@ -1,0 +1,134 @@
+/********************************************************************************
+*
+* Instrument icon_sample
+*
+* %Identification
+* Written by: Daniel Lomholt Christensen
+* Date: October 2026
+* Origin: UCPH @ NBI
+* %INSTRUMENT_SITE: Generated_instruments
+*
+* Sample instrument for the PSI_ICON MCPL file recorded just before the sample.
+* The source is either the MCPL file (MCPL_input) or a trained model
+* (Source_ML_torch). Both sit at the origin so the neutron coordinates stored in
+* the file are used as-is. An Fe powder sample in an Al can is placed just
+* downstream of the recording plane, and a PSD monitor sits 1 mm after the
+* furthest z point of the sample.
+*
+* %Parameters
+* run_from_mcpl: [str]  MCPL file to use as source when use_ml is 0.
+* use_ml:        [1]    0: MCPL_input source, 1: Source_ML_torch source.
+* run_ml:        [str]  TorchScript model used when use_ml is 1.
+* run_transformer: [str] Inverse Gaussian-rank transform binary for run_ml.
+* l_min: [AA]   Minimum wavelength on the wavelength monitor
+* l_max: [AA]   Maximum wavelength on the wavelength monitor
+*
+* %End
+********************************************************************************/
+
+DEFINE INSTRUMENT icon_sample (
+double l_min = 1,
+double l_max = 11,
+string run_from_mcpl = "../../data_files/mcpl_files/PSI_ICON.mcpl.gz",
+int use_ml = 0,
+string run_ml = "../../data_files/models/CFM_sampler.pt",
+string run_transformer = "../../data_files/preprocess/gaussian_transformer.bin"
+)
+
+DECLARE
+%{
+double z_file;
+double sample_dz;
+double sample_dy;
+double can_radius;
+double psd_gap;
+%}
+
+INITIALIZE
+%{
+z_file = -3.2148334;
+sample_dz = 0.0175;
+sample_dy = 0.0075;
+can_radius = 0.0125;
+psd_gap = 0.001;
+%}
+
+TRACE
+
+COMPONENT MCPL_source = MCPL_input(
+ filename = run_from_mcpl) WHEN (!use_ml)
+AT (0, 0, 0) ABSOLUTE
+
+COMPONENT ml_src = Source_ML_torch(
+ ML_filename = run_ml,
+ transformer_filename = run_transformer,
+ verbose = 0) WHEN (use_ml)
+AT (0, 0, 0) ABSOLUTE
+
+COMPONENT sample_position = Arm()
+AT (0, sample_dy, z_file + sample_dz) ABSOLUTE
+
+COMPONENT init = Union_init()
+AT (0, 0, 0) ABSOLUTE
+
+COMPONENT al_pow = Powder_process(
+ reflections = "Al.laz", interact_fraction = 0.2)
+AT (0, 0, 0) ABSOLUTE
+
+COMPONENT al_inc = Incoherent_process(
+ sigma = 0.0328, unit_cell_volume = 66.4,
+ interact_fraction = 0.2)
+AT (0, 0, 0) ABSOLUTE
+
+COMPONENT al = Union_make_material(
+ process_string = "al_inc,al_pow", my_absorption = 1.391566265060241)
+AT (0, 0, 0) ABSOLUTE
+
+COMPONENT sample_nc = NCrystal_process(
+ cfg = "Fe_sg225_Iron-gamma.ncmat;temp=25C")
+AT (0, 0, 0) ABSOLUTE
+
+COMPONENT sample = Union_make_material(
+ process_string = "sample_nc", my_absorption = 2.56)
+AT (0, 0, 0) ABSOLUTE
+
+COMPONENT can_outer = Union_cylinder(
+ material_string = "al", priority = 40,
+ radius = can_radius, yheight = 0.04)
+AT (0, 0, 0) RELATIVE sample_position
+
+COMPONENT can_inner = Union_cylinder(
+ material_string = "Vacuum", priority = 41,
+ radius = can_radius - 0.001, yheight = 0.038)
+AT (0, 0, 0) RELATIVE sample_position
+
+COMPONENT sample_cyl = Union_cylinder(
+ material_string = "sample", priority = 50,
+ radius = 0.006, yheight = 0.03)
+AT (0, 0, 0) RELATIVE sample_position
+
+COMPONENT Sample_environment = Union_master(
+ verbal = 0)
+AT (0, 0, 0) RELATIVE sample_position
+
+COMPONENT stop = Union_stop()
+AT (0, 0, 0) RELATIVE sample_position
+
+COMPONENT sample_PSD = PSD_monitor(
+ nx = 200, ny = 200, filename = "image.dat",
+ xwidth = 0.04, yheight = 0.04,
+ restore_neutron = 1)
+AT (0, 0, can_radius + psd_gap) RELATIVE sample_position
+
+COMPONENT wavelength = L_monitor(
+ nL = 1200, filename = "wavelength.dat",
+ xwidth = 0.04, yheight = 0.04,
+ Lmin = l_min, Lmax = l_max,
+ restore_neutron = 1)
+AT (0, 0, can_radius + psd_gap) RELATIVE sample_position
+
+FINALLY
+%{
+%}
+
+END
